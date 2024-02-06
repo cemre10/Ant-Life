@@ -44,6 +44,7 @@ class GameBoard:
             ])
                  
     def print_world(self) -> None:
+        system('cls')
         for line in self.world:
             print(line)
         print("-"*(self.width*5))
@@ -95,7 +96,6 @@ def main() -> None:
         World.print_world()
         World.move_ants()
         time.sleep(1)  
-        system('cls')
 
 if __name__ == "__main__":
     main()
