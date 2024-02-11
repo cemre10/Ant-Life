@@ -1,147 +1,147 @@
-import random
+from enum import Enum
 import time
-from os import system
+import random
 
-BOUNDARY_X = 15
-BOUNDARY_Y = 15
+Position = tuple[int, int]
 
-ANT = "🐜"
-FRUIT = "🍐"
-EMPTY = "  "
+MAX_FRUIT_NUM: int = 9
+ANT_SPAWN_RATE: float = 0.15
+FRUIT_SPAWN_RATE: float = 0.2
+SPACE_SPAWN_RATE: float = 0.6
+
+class Entity(Enum):
+    ANT = "A"
+    FRUIT = "F"
+    SPACE = " "
 
 class Ant:
-    def __init__(self, x: int, y: int, energy: int, step_count: int) -> None:
+    def __init__(self, x: int, y: int) -> None:
         self.x = x
         self.y = y
-        self.energy = energy
-        self.step_count = step_count
+    def _str__(self) -> str:
+        return f"({self.x}, {self.y})"
 
-    def move(self, dx: int, dy: int) -> tuple[int, int]:
-        return (self.x + dx, self.y + dy)
-    
-    def action(self):
-        self.step_count += 1
-        dx: int = random.choice([-1, 0, 1])
-        dy: int = random.choice([-1, 0, 1])
-        return self.move(dx, dy)
+    def position(self) -> Position:
+        return (self.x, self.y)
 
-    def reproduce(self, old_x, old_y) -> "Ant | None":
-        return Ant(old_x, old_y, 5, 1) if self.step_count >= 5 else None
+    def move(self) -> Position:
+        return (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
+
+class Fruit:
+    def __init__(self, x: int, y: int) -> None:
+        self.x = x
+        self.y = y
+    def _str__(self) -> str:
+        return f"({self.x}, {self.y})"
+
+    def position(self) -> Position:
+        return (self.x, self.y)
 
 class GameBoard:
-    def __init__(self, width: int, height: int, initial_energy: int = 5 , initial_step: int = 1) -> None:
-        self.width: int = width
-        self.height: int = height
-        self.world: list[list[str]] = [[self.select_entity() for _ in range(self.width)] for _ in range(self.height)]
-        self.ants: list[list[Ant | None]] = [
-                [Ant(row, col, initial_energy, initial_step) if tile == ANT else None for col, tile in enumerate(line)]
-                for row, line in enumerate(self.world)
+    def __init__(self, width: int, heigth: int) -> None:
+        self.width = width
+        self.heigth = heigth
+        self.world: list[list[Entity]] = [
+                [ self._select_entity() for _ in range(width)]
+                for _ in range(heigth)
                 ]
-        self.fruits: list[list[bool]] = [ [tile == FRUIT for tile in line] for line in self.world ]
-    
-    def select_entity(self, ant_mod: float = 0.2, fruit_mod: float = 0.5, space_mod: float = 0.5) -> str:
+        self.ants: list[Ant] = [
+                Ant(x, y)
+                for x, line in enumerate(self.world)
+                for y, entity in enumerate(line)
+                if entity == Entity.ANT
+                ]
+        if len(self.ants) == 0:
+            raise Exception("No ants spawned on the map")
+        self.fruits: list[Fruit] = [
+                Fruit(x, y)
+                for x, line in enumerate(self.world)
+                for y, entity in enumerate(line)
+                if entity == Entity.FRUIT
+                ]
+        if len(self.fruits) == 0:
+            raise Exception("No fruits spawned on the map")
+
+    def _select_entity(self,
+             ant_mod: float = ANT_SPAWN_RATE,
+             fruit_mod: float = FRUIT_SPAWN_RATE,
+             space_mod: float = SPACE_SPAWN_RATE) -> Entity:
+
         ant_chance: float = random.random() * ant_mod
         fruit_chance: float = random.random() * fruit_mod
 
         if ant_chance == fruit_chance:
-            return EMPTY
+            return Entity.SPACE
 
         space_chance: float = random.random() * space_mod
         chosen: float = max(ant_chance, fruit_chance, space_chance)
 
         if chosen == ant_chance:
-            return ANT
+            return Entity.ANT
         elif chosen == fruit_chance:
-            return FRUIT
+            return Entity.FRUIT
         else:
-            return EMPTY
-    
-    def get_new_fruit_location(self, new_row: int, new_col: int, ants: list[list[Ant | None]]) -> tuple[int, int] | None:
-        available_locations = [
+            return Entity.SPACE
+        
+    def _move_ants(self) -> list[tuple[int, Position]]:
+        all_moves = {
+                index: pos
+                for index, ant, in enumerate(self.ants)
+                if 0 <= (pos:=ant.move())[0] < self.heigth and 0 <= pos[1] < self.width and self.world[pos[0]][pos[1]] == Entity.SPACE
+                }
+        return [ pair for pair in all_moves.items() if pair[1] in set(all_moves.values()) ]
+        
+    def _update_ants(self, other_ants: list[tuple[int, Position]]) -> None:
+        for index, new_pos in other_ants:
+            x, y = self.ants[index].position()
+            self.world[x][y] = Entity.SPACE
+            x, y = new_pos
+            self.world[x][y] = Entity.ANT
+            self.ants[index].x = x
+            self.ants[index].y = y
+
+            
+    def _update_fruits(self) -> None:
+        if len(self.fruits) == 0:
+            return
+        to_pop = [
+                index
+                for index, fruit in enumerate(self.fruits)
+                for ant in self.ants
+                if ant.position() == fruit.position()
+                ]
+        to_pop.reverse()
+        for index in to_pop:
+            self.fruits.pop(index)
+
+    def _spawn_fruits(self) -> None:
+        #If the fruit number fall to 1 it means almost all tiles are captured by ants
+        if not (1 < len(self.fruits) < MAX_FRUIT_NUM):
+            return
+        x, y = random.choice([
             (x, y)
             for x, line in enumerate(self.world)
-            for y, line in enumerate(line)
-            if x != new_row and y != new_col
-            if not ants[x][y] and not self.fruits[x][y]
-        ]
+            for y, tile in enumerate(line)
+            if tile == Entity.SPACE
+            ])
+        self.world[x][y] = Entity.FRUIT
+        self.fruits.append(Fruit(x, y))
 
-        if available_locations:
-            return random.choice(available_locations)
-        else:
-            return None
-
-                 
     def print_world(self) -> None:
-        system('cls')
+        print(self.width * "-")
         for line in self.world:
-            print(line)
+            print("".join([tile.value for tile in line]))
+        print(self.width * "-")
 
-    def update_fruit(self, ants: list[list[Ant|None]], new_row: int, new_col:int) -> None:
-        if self.fruits[new_row][new_col]:
-            ants[new_row][new_col].energy += 3 # 1 fruit gives 3 energy
-
-            self.fruits[new_row][new_col] = False 
-
-            respawn_location = self.get_new_fruit_location(new_row, new_col, ants)
-            if respawn_location is not None:
-                respawn_row, respawn_col = respawn_location
-                self.fruits[respawn_row][respawn_col] = True
-                self.world[respawn_row][respawn_col] = FRUIT
-
-    def reproduce_ant(self, ants: list[list[Ant|None]], row: int, col: int, new_row: int, new_col:int) -> None:
-        if ants[new_row][new_col].energy == 0:
-            ants[new_row][new_col] = None # Ant's Energy died
-            self.world[new_row][new_col] = EMPTY
-
-        if (ants[new_row][new_col] is not None) and (ants[new_row][new_col].step_count % 6 == 0) and (ants[row][col] is None):
-            new_ant = ants[new_row][new_col].reproduce(row, col)
-            if new_ant is not None:
-                ants[new_ant.x][new_ant.y] = new_ant
-                self.world[new_ant.x][new_ant.y] = ANT
-    
-    def move_ants(self):
-        ants: list[list[Ant | None]] = [
-                [Ant(ant.x, ant.y, ant.energy, ant.step_count) if ant is not None else None for ant in row]
-                for row in self.ants
-                ]
-        for row in range(len(self.world)):
-            for col in range(len(self.world[row])):
-                if self.ants[row][col] is None: 
-                    continue
-                possible_moves: list = []
-
-                if row - 1 >= 0 and (ants[row - 1][col] is None):
-                    possible_moves.append((row - 1, col))
-                if row + 1 < len(self.world) and (ants[row + 1][col] is None):
-                    possible_moves.append((row + 1, col))
-                if col - 1 >= 0 and (ants[row][col - 1] is None):
-                    possible_moves.append((row, col - 1))
-                if col + 1 < len(self.world[row]) and (ants[row][col + 1] is None):
-                    possible_moves.append((row, col + 1)) 
-
-                if len(possible_moves) == 0:
-                    continue
-                new_row, new_col = random.choice(possible_moves)
-                
-
-                ants[row][col].step_count += 1
-                ants[row][col].energy -= 1  # 1 movement cost 1 energy
-                old_ant = ants[row][col]
-                self.world[row][col] = EMPTY
-                ants[new_row][new_col] = Ant(old_ant.x, old_ant.y, old_ant.energy, old_ant.step_count)
-                ants[row][col] = None
-                self.world[new_row][new_col] = ANT
-
-                self.update_fruit(ants, new_row, new_col)
-                self.reproduce_ant(ants, row, col, new_row, new_col)
-        self.ants = ants
-
-def main() -> None:
-    World: GameBoard = GameBoard(BOUNDARY_X, BOUNDARY_Y)
+    def main_loop(self) -> None:
+        self._update_ants(self._move_ants())
+        self._update_fruits()
+        self._spawn_fruits()
+        self.print_world()
+def main():
+    game = GameBoard(5, 5)
     while True:
-        World.print_world()
-        World.move_ants()
-        time.sleep(1)  
-
+        game.main_loop()
+        time.sleep(1)
 if __name__ == "__main__":
     main()
