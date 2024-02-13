@@ -27,6 +27,9 @@ class Ant:
     def move(self) -> Position:
         return (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
 
+    def reproduce(self) -> "Ant":
+        return Ant(self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
+
 class Fruit:
     def __init__(self, x: int, y: int) -> None:
         self.x = x
@@ -61,6 +64,8 @@ class GameBoard:
                 ]
         if len(self.fruits) == 0:
             raise Exception("No fruits spawned on the map")
+    def _can_be_placed(self, x: int, y: int) -> bool:
+        return 0 <= x < self.heigth and 0 <= y < self.width and self.world[x][y] == Entity.SPACE
 
     def _select_entity(self,
              ant_mod: float = ANT_SPAWN_RATE,
@@ -87,9 +92,17 @@ class GameBoard:
         all_moves = {
                 index: pos
                 for index, ant, in enumerate(self.ants)
-                if 0 <= (pos:=ant.move())[0] < self.heigth and 0 <= pos[1] < self.width and self.world[pos[0]][pos[1]] == Entity.SPACE
+                if self._can_be_placed(*(pos:=ant.move()))
                 }
         return [ pair for pair in all_moves.items() if pair[1] in set(all_moves.values()) ]
+
+    def _reproduce_ants(self) -> None:
+        for ant in self.ants:
+            new_ant = ant.reproduce()
+            if not self._can_be_placed(x:=new_ant.x, y:=new_ant.y):
+                continue
+            self.world[x][y] = Entity.ANT
+            self.ants.append(new_ant)
         
     def _update_ants(self, other_ants: list[tuple[int, Position]]) -> None:
         for index, new_pos in other_ants:
@@ -135,9 +148,11 @@ class GameBoard:
 
     def main_loop(self) -> None:
         self._update_ants(self._move_ants())
+        self._reproduce_ants()
         self._update_fruits()
         self._spawn_fruits()
         self.print_world()
+
 def main():
     game = GameBoard(5, 5)
     while True:
