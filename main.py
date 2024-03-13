@@ -5,9 +5,22 @@ import random
 Position = tuple[int, int]
 
 MAX_FRUIT_NUM: int = 9
-ANT_SPAWN_RATE: float = 0.15
-FRUIT_SPAWN_RATE: float = 0.2
+ANT_SPAWN_RATE: float = 0.25
+FRUIT_SPAWN_RATE: float = 0.4
 SPACE_SPAWN_RATE: float = 0.6
+
+def unique_only(lt: list)-> None:
+    to_pop = list(set([
+            j
+            for i in range(len(lt))
+            for j in range(len(lt))
+            if i != j
+            if lt[i][1] == lt[j][1]
+                           ]))
+    to_pop.sort(reverse=True)
+    for i in to_pop:
+        lt.pop(i)
+
 
 class Entity(Enum):
     ANT = "A"
@@ -18,17 +31,22 @@ class Ant:
     def __init__(self, x: int, y: int) -> None:
         self.x = x
         self.y = y
+        self.actions = {
+            "move": lambda self: (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1])),
+            "reproduce": lambda self: (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
+            }
+    def set_position(self, x:int, y:int) -> None:
+        self.x = x
+        self.y = y
     def _str__(self) -> str:
         return f"({self.x}, {self.y})"
 
     def position(self) -> Position:
         return (self.x, self.y)
 
-    def move(self) -> Position:
-        return (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
-
-    def reproduce(self) -> "Ant":
-        return Ant(self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
+    def act(self):
+        action = random.choice(["move", "reproduce"])
+        return (action, self.actions[action](self))
 
 class Fruit:
     def __init__(self, x: int, y: int) -> None:
@@ -64,6 +82,7 @@ class GameBoard:
                 ]
         if len(self.fruits) == 0:
             raise Exception("No fruits spawned on the map")
+
     def _can_be_placed(self, x: int, y: int) -> bool:
         return 0 <= x < self.heigth and 0 <= y < self.width and self.world[x][y] == Entity.SPACE
 
@@ -88,31 +107,6 @@ class GameBoard:
         else:
             return Entity.SPACE
         
-    def _move_ants(self) -> list[tuple[int, Position]]:
-        all_moves = {
-                index: pos
-                for index, ant, in enumerate(self.ants)
-                if self._can_be_placed(*(pos:=ant.move()))
-                }
-        return [ pair for pair in all_moves.items() if pair[1] in set(all_moves.values()) ]
-
-    def _reproduce_ants(self) -> None:
-        for ant in self.ants:
-            new_ant = ant.reproduce()
-            if not self._can_be_placed(x:=new_ant.x, y:=new_ant.y):
-                continue
-            self.world[x][y] = Entity.ANT
-            self.ants.append(new_ant)
-        
-    def _update_ants(self, other_ants: list[tuple[int, Position]]) -> None:
-        for index, new_pos in other_ants:
-            x, y = self.ants[index].position()
-            self.world[x][y] = Entity.SPACE
-            x, y = new_pos
-            self.world[x][y] = Entity.ANT
-            self.ants[index].x = x
-            self.ants[index].y = y
-
             
     def _update_fruits(self) -> None:
         if len(self.fruits) == 0:
@@ -146,17 +140,43 @@ class GameBoard:
             print("".join([tile.value for tile in line]))
         print(self.width * "-")
 
+    def _process_ants(self) -> None:
+        processes= [
+                (index, action)
+                for index, ant in enumerate(self.ants)
+                if self._can_be_placed(*(action := ant.act())[1])
+                ]
+        unique_only(processes)
+        for process in processes:
+            index, action = process
+            if action[0] == "move":
+                x, y = self.ants[index].position()
+                self.world[x][y] = Entity.SPACE
+                self.ants[index].set_position(*action[1])
+                x, y = self.ants[index].position()
+                self.world[x][y] = Entity.ANT
+
+            elif action[0] == "reproduce":
+                x, y = action[1]
+                self.world[x][y] = Entity.ANT
+                self.ants.append(Ant(x,y))
+
+
     def main_loop(self) -> None:
-        self._update_ants(self._move_ants())
-        self._reproduce_ants()
+        self._process_ants()
         self._update_fruits()
-        self._spawn_fruits()
+        if  4 < len(self.fruits) < MAX_FRUIT_NUM:
+            self._spawn_fruits()
         self.print_world()
 
+
+
 def main():
-    game = GameBoard(5, 5)
-    while True:
+    game = GameBoard(10, 10)
+    while(50):
         game.main_loop()
         time.sleep(1)
+        
+
 if __name__ == "__main__":
     main()
