@@ -27,13 +27,17 @@ class Entity(Enum):
     FRUIT = "F"
     SPACE = " "
 
+class Actions(Enum):
+    MOVE = "move"
+    REPRODUCE = "reproduce"
+
 class Ant:
     def __init__(self, x: int, y: int) -> None:
         self.x = x
         self.y = y
         self.actions = {
-            "move": lambda self: (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1])),
-            "reproduce": lambda self: (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
+            Actions.MOVE: lambda self: (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1])),
+            Actions.REPRODUCE: lambda self: (self.x + random.choice([-1, 0, 1]), self.y + random.choice([-1, 0, 1]))
             }
     def set_position(self, x:int, y:int) -> None:
         self.x = x
@@ -45,7 +49,7 @@ class Ant:
         return (self.x, self.y)
 
     def act(self):
-        action = random.choice(["move", "reproduce"])
+        action = random.choice([Actions.MOVE, Actions.REPRODUCE])
         return (action, self.actions[action](self))
 
 class Fruit:
@@ -82,6 +86,13 @@ class GameBoard:
                 ]
         if len(self.fruits) == 0:
             raise Exception("No fruits spawned on the map")
+        self.actions = {
+                Actions.MOVE: lambda index, position: self._move_ant(index, position),
+                Actions.REPRODUCE: lambda _, position: self._reproduce_ant(position)
+                }
+        if len(self.actions) != len(Actions):
+            raise Exception("Some functionality specified by Actions wasn't implemented")
+        
 
     def _can_be_placed(self, x: int, y: int) -> bool:
         return 0 <= x < self.heigth and 0 <= y < self.width and self.world[x][y] == Entity.SPACE
@@ -140,6 +151,18 @@ class GameBoard:
             print("".join([tile.value for tile in line]))
         print(self.width * "-")
 
+    def _move_ant(self, index: int, position: Position) -> None:
+        x, y = self.ants[index].position()
+        self.world[x][y] = Entity.SPACE
+        x, y = position
+        self.ants[index].set_position(x, y)
+        self.world[x][y] = Entity.ANT
+
+    def _reproduce_ant(self, position: Position) -> None:
+        x, y = position
+        self.world[x][y] = Entity.ANT
+        self.ants.append(Ant(x,y))
+
     def _process_ants(self) -> None:
         processes= [
                 (index, action)
@@ -149,17 +172,7 @@ class GameBoard:
         unique_only(processes)
         for process in processes:
             index, action = process
-            if action[0] == "move":
-                x, y = self.ants[index].position()
-                self.world[x][y] = Entity.SPACE
-                self.ants[index].set_position(*action[1])
-                x, y = self.ants[index].position()
-                self.world[x][y] = Entity.ANT
-
-            elif action[0] == "reproduce":
-                x, y = action[1]
-                self.world[x][y] = Entity.ANT
-                self.ants.append(Ant(x,y))
+            self.actions[action[0]](index, action[1])
 
 
     def main_loop(self) -> None:
